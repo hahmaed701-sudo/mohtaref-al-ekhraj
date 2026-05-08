@@ -1,12 +1,6 @@
 streamlit
-python-dotenv
 requests
 Pillow
-python-docx
-PyPDF2
-moviepy
-pydub
+python-dotenv
 numpy
-opencv-python-headless
-arabic-reshaper
-python-bidi
+pandas
