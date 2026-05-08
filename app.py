@@ -3,8 +3,6 @@ import os, time, json
 from datetime import datetime
 import requests
 import streamlit as st
-
-st.set_page_config(page_title="محترف الإخراج | Mohtaref Al Ekhraj", page_icon="🎬", layout="wide", initial_sidebar_state="expanded")
 RUNWAY_API_KEY = os.getenv("RUNWAYML_API_SECRET", "")
 RUNWAY_BASE_URL = "https://api.dev.runwayml.com/v1"
 RUNWAY_VERSION = "2024-11-06"
