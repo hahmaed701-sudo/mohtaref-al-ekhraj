@@ -217,7 +217,7 @@ with left:
 with mid:
     st.markdown('<div class="hero-title">محترف الإخراج</div><div class="muted">AI Drama Director Studio — نسخة Render الموحدة</div>', unsafe_allow_html=True)
 with right:
-    safe_mode = st.toggle("🛡️ الوضع الآمن", value=True, help="بدون استهلاك رصيد Runway")
+    safe_mode = st.toggle("🛡️ الوضع الآمن", value=False, help="بدون استهلاك رصيد Runway")
     st.caption("✅ Render Ready" if RUNWAY_API_KEY else "⚠️ RUNWAYML_API_SECRET غير موجود")
 
 # =============================
