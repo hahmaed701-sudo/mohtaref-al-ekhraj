@@ -1,10 +1,15 @@
-# محترف الإخراج — نسخة Render كاملة
+# محترف الإخراج — Single File
 
-## Render Start Command
+هذه نسخة ملف واحد بدون مجلد modules لتجنب خطأ:
+`ModuleNotFoundError: No module named 'modules'`
+
+## Render
+Start Command:
+```bash
 streamlit run app.py --server.port $PORT --server.address 0.0.0.0
+```
 
-## Environment Variable
-RUNWAYML_API_SECRET=your_runway_key
-
-## Build Command
-pip install -r requirements.txt
+Environment Variable:
+```text
+RUNWAYML_API_SECRET
+```

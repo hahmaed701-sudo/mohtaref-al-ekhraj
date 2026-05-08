@@ -1,4 +1,4 @@
-
-streamlit
-requests
-pillow
+streamlit>=1.31
+requests>=2.31
+python-dotenv>=1.0
+pillow>=10.0
