@@ -102,6 +102,51 @@ def build_payload(model: str, prompt: str, duration: int, ratio: str, seedance_r
     return payload
 
 
+def supported_duration(model: str, desired: int) -> int:
+    """Return the closest Runway-supported duration for the selected model."""
+    allowed = MODEL_FEATURES.get(model, {}).get("durations", [4, 6, 8])
+    desired = int(desired)
+    if desired in allowed:
+        return desired
+    return min(allowed, key=lambda x: abs(x - desired))
+
+
+def distribute_scene_durations(model: str, scene_duration: int, shot_count: int) -> List[int]:
+    """Create per-shot generation durations that best match the scene duration."""
+    allowed = MODEL_FEATURES.get(model, {}).get("durations", [4, 6, 8])
+    if shot_count <= 0:
+        return []
+    target_avg = max(min(int(scene_duration / shot_count), max(allowed)), min(allowed))
+    base = min(allowed, key=lambda x: abs(x - target_avg))
+    durations = [base for _ in range(shot_count)]
+    # Adjust lightly toward requested scene duration while staying valid.
+    total = sum(durations)
+    for i in range(shot_count):
+        if abs(total - scene_duration) <= min(allowed):
+            break
+        if total < scene_duration:
+            larger = [d for d in allowed if d > durations[i]]
+            if larger:
+                new = larger[0]
+                total += new - durations[i]
+                durations[i] = new
+        elif total > scene_duration:
+            smaller = [d for d in allowed if d < durations[i]]
+            if smaller:
+                new = smaller[-1]
+                total += new - durations[i]
+                durations[i] = new
+    return durations
+
+
+def save_video_to_library(scene_key: str, shot_number: int, item: Dict[str, Any]) -> None:
+    """Save every generated video/mock card in one shared scene video library."""
+    if "videos" not in st.session_state:
+        st.session_state.videos = {}
+    video_key = f"{scene_key}_shot_{shot_number}"
+    st.session_state.videos[video_key] = item
+
+
 def create_runway_task(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not RUNWAY_API_KEY:
         raise RuntimeError("لا يوجد مفتاح RUNWAYML_API_SECRET داخل Render Environment Variables")
@@ -142,6 +187,7 @@ def default_shots(n: int) -> List[Dict[str, Any]]:
     return [
         {
             "title": f"لقطة {i+1}",
+            "description": "",
             "duration": 6,
             "lens": LENSES[min(i, len(LENSES)-1)],
             "type": pattern[i % len(pattern)],
@@ -172,6 +218,7 @@ def build_shot_prompt(global_settings: Dict[str, Any], scene: Dict[str, Any], sh
         f"Cinematic shot for scene {scene.get('number')}: {scene.get('title')}",
         f"Overall scene: {scene.get('description')}",
         f"Project type: {global_settings.get('project_type')}, directing style: {global_settings.get('style')}",
+        f"Shot description: {shot.get('description')}",
         f"Shot type: {shot.get('type')}, lens: {shot.get('lens')}, camera movement: {shot.get('movement')}",
         f"Camera: {global_settings.get('camera')}",
         f"Scene lighting: {scene.get('lighting')}",
@@ -369,6 +416,8 @@ with tab_scenes:
                 shot["lens"] = q3.selectbox("🔭 العدسة", LENSES, index=LENSES.index(shot.get("lens", "50mm")) if shot.get("lens") in LENSES else 3, key=f"lens_{s}_{i}")
                 shot["type"] = q4.selectbox("📷 نوع اللقطة", SHOT_TYPES, index=SHOT_TYPES.index(shot.get("type", "Medium")) if shot.get("type") in SHOT_TYPES else 1, key=f"stype_{s}_{i}")
 
+                shot["description"] = st.text_area("📝 وصف اللقطة", value=shot.get("description", ""), height=80, key=f"shot_desc_{s}_{i}", placeholder="اكتب وصفًا دقيقًا لما يحدث داخل هذه اللقطة...")
+
                 q5, q6, q7 = st.columns(3)
                 shot["movement"] = q5.selectbox("🎥 حركة الكاميرا", MOVEMENTS, index=MOVEMENTS.index(shot.get("movement", "Static")) if shot.get("movement") in MOVEMENTS else 0, key=f"mov_{s}_{i}")
                 shot["transition"] = q6.selectbox("🎞️ الانتقال", TRANSITIONS, index=TRANSITIONS.index(shot.get("transition", "Cut")) if shot.get("transition") in TRANSITIONS else 0, key=f"trans_{s}_{i}")
@@ -386,10 +435,13 @@ with tab_scenes:
                 b1, b2, b3, b4 = st.columns(4)
                 if b1.button("🎥 توليد هذه اللقطة فقط", key=f"gen_shot_{s}_{i}"):
                     video_key = f"{scene_key}_shot_{i+1}"
-                    payload = build_payload(model, prompt, int(runway_duration), ratio)
+                    shot_generation_duration = supported_duration(model, int(shot.get("duration", runway_duration)))
+                    if shot_generation_duration != int(shot.get("duration", shot_generation_duration)):
+                        st.warning(f"مدة اللقطة المحددة غير مدعومة لهذا الموديل، سيتم استخدام أقرب مدة مدعومة: {shot_generation_duration} ثانية")
+                    payload = build_payload(model, prompt, shot_generation_duration, ratio)
                     st.json(payload)
                     if safe_mode:
-                        st.session_state.videos[video_key] = {"url": None, "prompt": prompt, "status": "mock", "time": str(datetime.now()), "model": model, "duration": runway_duration, "ratio": ratio}
+                        st.session_state.videos[video_key] = {"url": None, "prompt": prompt, "status": "mock", "time": str(datetime.now()), "model": model, "duration": shot_generation_duration, "ratio": ratio}
                         st.info("الوضع الآمن مفعل: تم إنشاء بطاقة بدون استهلاك رصيد")
                     else:
                         try:
@@ -399,11 +451,11 @@ with tab_scenes:
                                 result = poll_task(task_id) if task_id else task
                                 output = result.get("output") or []
                                 url = output[0] if isinstance(output, list) and output else None
-                                st.session_state.videos[video_key] = {"url": url, "prompt": prompt, "status": result.get("status", "done"), "time": str(datetime.now()), "model": model, "duration": runway_duration, "ratio": ratio}
+                                st.session_state.videos[video_key] = {"url": url, "prompt": prompt, "status": result.get("status", "done"), "time": str(datetime.now()), "model": model, "duration": shot_generation_duration, "ratio": ratio}
                                 st.success("تم توليد اللقطة")
                         except Exception as e:
                             st.error(str(e))
-                            st.session_state.videos[video_key] = {"url": None, "prompt": prompt, "status": "failed", "error": str(e), "time": str(datetime.now()), "model": model, "duration": runway_duration, "ratio": ratio}
+                            st.session_state.videos[video_key] = {"url": None, "prompt": prompt, "status": "failed", "error": str(e), "time": str(datetime.now()), "model": model, "duration": shot_generation_duration, "ratio": ratio}
 
                 if b2.button("➕ إضافة لقطة بعد هذه", key=f"insert_{s}_{i}"):
                     shots.insert(i+1, default_shots(1)[0] | {"title": f"لقطة {i+2}"})
@@ -421,14 +473,17 @@ with tab_scenes:
         st.markdown("### 🎬 توليد المشهد كامل")
         if st.button(f"🎬 توليد المشهد رقم {s+1} كامل", key=f"gen_scene_{s}"):
             progress = st.progress(0)
+            scene_duration_plan = distribute_scene_durations(model, int(scene_duration), len(st.session_state.scene_shots[scene_key]))
+            st.caption(f"خطة مدد لقطات المشهد حسب مدة المشهد {scene_duration} ثانية: {scene_duration_plan}")
             for i, shot in enumerate(st.session_state.scene_shots[scene_key]):
                 st.write(f"جاري توليد لقطة {i+1} من {len(st.session_state.scene_shots[scene_key])}")
                 prompt = build_shot_prompt(global_settings, scene_data, shot)
-                payload = build_payload(model, prompt, int(runway_duration), ratio)
+                current_scene_clip_duration = scene_duration_plan[i] if i < len(scene_duration_plan) else supported_duration(model, int(runway_duration))
+                payload = build_payload(model, prompt, current_scene_clip_duration, ratio)
                 st.json(payload)
                 video_key = f"{scene_key}_shot_{i+1}"
                 if safe_mode:
-                    st.session_state.videos[video_key] = {"url": None, "prompt": prompt, "status": "mock", "time": str(datetime.now()), "model": model, "duration": runway_duration, "ratio": ratio}
+                    st.session_state.videos[video_key] = {"url": None, "prompt": prompt, "status": "mock", "time": str(datetime.now()), "model": model, "duration": current_scene_clip_duration, "ratio": ratio}
                 else:
                     try:
                         task = create_runway_task(payload)
@@ -436,10 +491,10 @@ with tab_scenes:
                         result = poll_task(task_id) if task_id else task
                         output = result.get("output") or []
                         url = output[0] if isinstance(output, list) and output else None
-                        st.session_state.videos[video_key] = {"url": url, "prompt": prompt, "status": result.get("status", "done"), "time": str(datetime.now()), "model": model, "duration": runway_duration, "ratio": ratio}
+                        st.session_state.videos[video_key] = {"url": url, "prompt": prompt, "status": result.get("status", "done"), "time": str(datetime.now()), "model": model, "duration": current_scene_clip_duration, "ratio": ratio}
                     except Exception as e:
                         st.error(f"فشل توليد لقطة {i+1}: {e}")
-                        st.session_state.videos[video_key] = {"url": None, "prompt": prompt, "status": "failed", "error": str(e), "time": str(datetime.now()), "model": model, "duration": runway_duration, "ratio": ratio}
+                        st.session_state.videos[video_key] = {"url": None, "prompt": prompt, "status": "failed", "error": str(e), "time": str(datetime.now()), "model": model, "duration": current_scene_clip_duration, "ratio": ratio}
                 progress.progress((i + 1) / len(st.session_state.scene_shots[scene_key]))
             st.success("انتهى توليد المشهد")
 
