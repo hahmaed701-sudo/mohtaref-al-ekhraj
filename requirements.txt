@@ -1,0 +1,12 @@
+streamlit
+python-dotenv
+requests
+Pillow
+python-docx
+PyPDF2
+moviepy
+pydub
+numpy
+opencv-python-headless
+arabic-reshaper
+python-bidi
