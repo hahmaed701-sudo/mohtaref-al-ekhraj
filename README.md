@@ -1,9 +1,10 @@
-# محترف الإخراج — Unified Runway
+# محترف الإخراج — نسخة Render كاملة
 
-Start command for Render:
-
-```bash
+## Render Start Command
 streamlit run app.py --server.port $PORT --server.address 0.0.0.0
-```
 
-Environment variable: `RUNWAYML_API_SECRET`
+## Environment Variable
+RUNWAYML_API_SECRET=your_runway_key
+
+## Build Command
+pip install -r requirements.txt
